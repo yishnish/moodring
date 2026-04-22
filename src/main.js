@@ -30,7 +30,7 @@ let activeJobs  = 0;
 let chunkCount  = 0;
 let mode        = 'proportional';
 let progressHWM = 0; // high-water mark — bar never goes backwards
-
+const fileBytes  = {};  // per-file byte tracking
 
 // --- Resize ---
 window.addEventListener('resize', () => renderer.resize());
@@ -51,19 +51,31 @@ function setBarPct(pct) {
   loadingPct.textContent  = `${Math.round(pct)}%`;
 }
 
-function updateModelProgress(p) {
-  // Use progress_total (v4 aggregate) but clamp with a high-water mark
-  // so the bar never goes backwards when new large files appear
-  if (p.status === 'progress_total') {
-    const pct = p.progress ?? 0;
-    if (pct > progressHWM) {
-      progressHWM = pct;
-      setBarPct(progressHWM);
-    }
+function advanceBar(pct) {
+  if (pct > progressHWM) {
+    progressHWM = pct;
+    setBarPct(progressHWM);
   }
-  // Show the current file name so it's visible on phone
-  if (p.status === 'initiate' && p.file) {
-    loadingDebug.textContent = p.file.split('/').pop();
+}
+
+function updateModelProgress(p) {
+  // Per-file tracking — fires from raw from_pretrained
+  if (p.status === 'progress' && p.file && p.total > 0) {
+    fileBytes[p.file] = { loaded: p.loaded ?? 0, total: p.total };
+    const entries     = Object.values(fileBytes);
+    const totalLoaded = entries.reduce((s, e) => s + e.loaded, 0);
+    const totalSize   = entries.reduce((s, e) => s + e.total, 0);
+    advanceBar(totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0);
+
+    // Show active file + its own % so phone can confirm events are arriving
+    const filePct  = Math.round((p.loaded / p.total) * 100);
+    const fileName = p.file.split('/').pop();
+    loadingDebug.textContent = `${fileName}  ${filePct}%`;
+  }
+
+  // progress_total fires from pipeline() — use it as a fallback aggregate
+  if (p.status === 'progress_total') {
+    advanceBar(p.progress ?? 0);
   }
 }
 
@@ -108,7 +120,9 @@ function initWorker() {
 
       case 'model_start':
         progressHWM = 0;
+        Object.keys(fileBytes).forEach(k => delete fileBytes[k]);
         loadingLabel.textContent = 'Downloading Gemma 4 E2B';
+        loadingDebug.textContent = '';
         setBarPct(0);
         break;
 
