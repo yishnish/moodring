@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0"
+    "@huggingface/transformers": "^4.1.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

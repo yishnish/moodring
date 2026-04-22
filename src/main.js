@@ -22,8 +22,8 @@ let audio      = null;
 let pendingId  = 0;
 let mode       = 'proportional';
 
-// Per-model byte tracking for accurate progress bars
-const fileBytes = { whisper: {}, gemma: {} };
+// Per-file byte tracking for accurate progress bar
+const fileBytes = {};
 
 // --- Resize ---
 window.addEventListener('resize', () => renderer.resize());
@@ -44,41 +44,33 @@ function setBarPct(pct) {
   loadingPct.textContent  = `${Math.round(pct)}%`;
 }
 
-function updateModelProgress(stage, p) {
+function updateModelProgress(p) {
   if (p.status === 'progress' && p.file && p.total > 0) {
-    fileBytes[stage][p.file] = { loaded: p.loaded ?? 0, total: p.total };
-    const entries     = Object.values(fileBytes[stage]);
+    fileBytes[p.file] = { loaded: p.loaded ?? 0, total: p.total };
+    const entries     = Object.values(fileBytes);
     const totalLoaded = entries.reduce((s, e) => s + e.loaded, 0);
     const totalSize   = entries.reduce((s, e) => s + e.total, 0);
     setBarPct(totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0);
   }
   if (p.status === 'initiate') {
-    const label = stage === 'whisper' ? 'Transcription model' : 'Mood model';
-    loadingLabel.textContent = `Downloading ${label}`;
+    loadingLabel.textContent = 'Downloading Gemma 4 E2B';
   }
   if (p.status === 'loading') {
-    const label = stage === 'whisper' ? 'Transcription model' : 'Mood model';
-    loadingLabel.textContent = `Loading ${label}`;
+    loadingLabel.textContent = 'Loading Gemma 4 E2B';
     setBarPct(100);
   }
 }
 
 // --- Worker ---
 function initWorker() {
-  showLoadingBar('Downloading transcription model');
+  showLoadingBar('Downloading Gemma 4 E2B');
 
   worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
       case 'progress':
-        updateModelProgress(data.stage, data.progress ?? {});
-        break;
-
-      case 'whisper_ready':
-        fileBytes.gemma = {};
-        setBarPct(0);
-        loadingLabel.textContent = 'Downloading mood model';
+        updateModelProgress(data.progress ?? {});
         break;
 
       case 'ready':
