@@ -112,6 +112,10 @@ function initWorker() {
 
   worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
+  worker.onerror = (e) => {
+    showError(`Worker crashed (likely out of memory).\n\nGemma 4 E2B needs ~2 GB of free RAM. Try closing other apps, or test on a desktop browser first.\n\nDetail: ${e.message ?? e}`);
+  };
+
   worker.onmessage = ({ data }) => {
     switch (data.type) {
       case 'progress':
@@ -161,7 +165,12 @@ function initWorker() {
     }
   };
 
-  const device = navigator.gpu ? 'webgpu' : 'wasm';
+  // iOS crashes under large WebGPU model loads — force WASM on all iOS devices
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const device = (!isIOS && navigator.gpu) ? 'webgpu' : 'wasm';
+
+  loadingDebug.textContent = `device: ${device}`;
   worker.postMessage({ type: 'load', device });
 }
 
