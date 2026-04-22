@@ -13,6 +13,11 @@ const loadingState  = document.getElementById('loading-state');
 const loadingLabel  = document.getElementById('loading-label');
 const loadingFill   = document.getElementById('loading-bar-fill');
 const loadingPct    = document.getElementById('loading-pct');
+const debugPanel    = document.getElementById('debug-panel');
+const debugStatus   = document.getElementById('debug-status');
+const debugMood     = document.getElementById('debug-mood');
+const debugSnippet  = document.getElementById('debug-snippet');
+const debugCount    = document.getElementById('debug-count');
 
 // --- State ---
 const history  = new MoodHistory();
@@ -20,10 +25,9 @@ const renderer = new RingRenderer(canvas);
 let worker     = null;
 let audio      = null;
 let pendingId  = 0;
+let activeJobs = 0;
+let chunkCount = 0;
 let mode       = 'proportional';
-
-// Per-file byte tracking for accurate progress bar
-const fileBytes = {};
 
 // --- Resize ---
 window.addEventListener('resize', () => renderer.resize());
@@ -44,26 +48,49 @@ function setBarPct(pct) {
   loadingPct.textContent  = `${Math.round(pct)}%`;
 }
 
+// v4 fires 'progress_total' with an aggregate percentage across all files
 function updateModelProgress(p) {
-  if (p.status === 'progress' && p.file && p.total > 0) {
-    fileBytes[p.file] = { loaded: p.loaded ?? 0, total: p.total };
-    const entries     = Object.values(fileBytes);
-    const totalLoaded = entries.reduce((s, e) => s + e.loaded, 0);
-    const totalSize   = entries.reduce((s, e) => s + e.total, 0);
-    setBarPct(totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0);
+  if (p.status === 'progress_total') {
+    setBarPct(p.progress ?? 0);
   }
   if (p.status === 'initiate') {
     loadingLabel.textContent = 'Downloading Gemma 4 E2B';
   }
-  if (p.status === 'loading') {
+  if (p.status === 'done') {
     loadingLabel.textContent = 'Loading Gemma 4 E2B';
-    setBarPct(100);
   }
+}
+
+// --- Debug panel ---
+function setDebugStatus(msg) {
+  debugStatus.textContent = msg;
+}
+
+function updateDebug({ mood, intensity, transcript } = {}) {
+  debugCount.textContent = `${chunkCount} chunk${chunkCount !== 1 ? 's' : ''}`;
+  if (mood) {
+    debugMood.textContent = `${mood}  ${(intensity * 100).toFixed(0)}%`;
+    debugMood.style.color = getMoodDebugColor(mood);
+  }
+  if (transcript) {
+    const trimmed = transcript.trim();
+    debugSnippet.textContent = trimmed.length > 80
+      ? '…' + trimmed.slice(-80)
+      : trimmed;
+  }
+}
+
+function getMoodDebugColor(mood) {
+  const map = {
+    calm: '#4A90D9', happy: '#F5A623', excited: '#FF6B35',
+    tense: '#D0021B', sad: '#7B68EE', angry: '#8B0000', neutral: '#9B9B9B',
+  };
+  return map[mood] ?? '#fff';
 }
 
 // --- Worker ---
 function initWorker() {
-  showLoadingBar('Downloading Gemma 4 E2B');
+  showLoadingBar('Starting…');
 
   worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
@@ -77,17 +104,33 @@ function initWorker() {
         loadingState.classList.add('hidden');
         overlay.classList.add('hidden');
         toggleBtn.style.display = 'block';
+        debugPanel.style.display = 'flex';
         setStatus('Listening');
+        setDebugStatus('Listening — waiting for speech');
         startAudio();
         break;
 
       case 'result':
+        activeJobs = Math.max(0, activeJobs - 1);
+        chunkCount++;
         history.add(data.mood, data.intensity);
         renderer.setCurrentMood(data.mood, data.intensity);
+        updateDebug({ mood: data.mood, intensity: data.intensity, transcript: data.transcript });
+        setDebugStatus(activeJobs > 0 ? `Processing (${activeJobs} in queue)` : 'Listening');
+        break;
+
+      case 'skip':
+        activeJobs = Math.max(0, activeJobs - 1);
+        setDebugStatus(activeJobs > 0 ? `Processing (${activeJobs} in queue)` : 'Listening — no speech detected');
         break;
 
       case 'error':
-        if (!data.id) showError(`Model error: ${data.message}`);
+        activeJobs = Math.max(0, activeJobs - 1);
+        if (!data.id) {
+          showError(`Model error: ${data.message}`);
+        } else {
+          setDebugStatus(`Chunk error: ${data.message}`);
+        }
         break;
     }
   };
@@ -101,6 +144,8 @@ function startAudio() {
   audio = new AudioCapture({
     onAudioChunk: (float32) => {
       const id = ++pendingId;
+      activeJobs++;
+      setDebugStatus(`Processing chunk #${id}…`);
       worker.postMessage({ type: 'transcribe', id, audio: float32 }, [float32.buffer]);
     },
     onError: (msg) => showError(msg),

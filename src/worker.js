@@ -28,7 +28,8 @@ function parseResult(raw) {
   try {
     const parsed = JSON.parse(match[0]);
     if (!MOODS.includes(parsed.mood)) parsed.mood = 'neutral';
-    parsed.intensity = Math.max(0, Math.min(1, Number(parsed.intensity) || 0.5));
+    parsed.intensity  = Math.max(0, Math.min(1, Number(parsed.intensity) || 0.5));
+    parsed.transcript = typeof parsed.transcript === 'string' ? parsed.transcript : '';
     return parsed;
   } catch {
     return null;
@@ -77,8 +78,12 @@ self.onmessage = async ({ data }) => {
         { skip_special_tokens: true },
       );
 
-      const result = parseResult(decoded[0]) ?? { mood: 'neutral', intensity: 0.5 };
-      self.postMessage({ type: 'result', id, ...result });
+      const parsed = parseResult(decoded[0]);
+      if (!parsed || !parsed.transcript || parsed.transcript.trim().split(/\s+/).length < 3) {
+        self.postMessage({ type: 'skip', id });
+        return;
+      }
+      self.postMessage({ type: 'result', id, ...parsed });
     } catch (err) {
       self.postMessage({ type: 'error', id, message: err.message });
     }
