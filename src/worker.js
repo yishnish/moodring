@@ -2,7 +2,7 @@ import { pipeline, env } from '@huggingface/transformers';
 
 env.allowLocalModels = false;
 
-const WHISPER_MODEL = 'openai/whisper-tiny.en';
+const WHISPER_MODEL = 'Xenova/whisper-tiny.en';
 const GEMMA_MODEL   = 'google/gemma-4-E2B-it';
 const MOODS         = ['calm', 'happy', 'excited', 'tense', 'sad', 'angry', 'neutral'];
 const MIN_WORDS     = 3;
