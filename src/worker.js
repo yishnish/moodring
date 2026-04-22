@@ -41,13 +41,16 @@ self.onmessage = async ({ data }) => {
     try {
       const device = data.device ?? 'wasm';
       const dtype  = device === 'webgpu' ? 'q4f16' : 'q4';
-      const prog   = (p) => self.postMessage({ type: 'progress', stage: 'gemma', progress: p });
 
-      processor = await AutoProcessor.from_pretrained(MODEL_ID, { progress_callback: prog });
-      model     = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
+      // Processor is tiny — load silently so it doesn't pollute the bar
+      processor = await AutoProcessor.from_pretrained(MODEL_ID);
+
+      // Model is large — track its progress separately
+      self.postMessage({ type: 'model_start' });
+      model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
         dtype,
         device,
-        progress_callback: prog,
+        progress_callback: (p) => self.postMessage({ type: 'progress', progress: p }),
       });
 
       self.postMessage({ type: 'ready' });

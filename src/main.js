@@ -48,16 +48,14 @@ function setBarPct(pct) {
   loadingPct.textContent  = `${Math.round(pct)}%`;
 }
 
-// v4 fires 'progress_total' with an aggregate percentage across all files
+// Accumulate per-file bytes — resets cleanly when model_start fires
 function updateModelProgress(p) {
-  if (p.status === 'progress_total') {
-    setBarPct(p.progress ?? 0);
-  }
-  if (p.status === 'initiate') {
-    loadingLabel.textContent = 'Downloading Gemma 4 E2B';
-  }
-  if (p.status === 'done') {
-    loadingLabel.textContent = 'Loading Gemma 4 E2B';
+  if (p.status === 'progress' && p.file && p.total > 0) {
+    fileBytes[p.file] = { loaded: p.loaded ?? 0, total: p.total };
+    const entries     = Object.values(fileBytes);
+    const totalLoaded = entries.reduce((s, e) => s + e.loaded, 0);
+    const totalSize   = entries.reduce((s, e) => s + e.total, 0);
+    setBarPct(totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0);
   }
 }
 
@@ -90,7 +88,7 @@ function getMoodDebugColor(mood) {
 
 // --- Worker ---
 function initWorker() {
-  showLoadingBar('Starting…');
+  showLoadingBar('Initializing…');
 
   worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
@@ -98,6 +96,13 @@ function initWorker() {
     switch (data.type) {
       case 'progress':
         updateModelProgress(data.progress ?? {});
+        break;
+
+      case 'model_start':
+        // Processor done (silent), now downloading the large model weights
+        Object.keys(fileBytes).forEach(k => delete fileBytes[k]);
+        loadingLabel.textContent = 'Downloading Gemma 4 E2B';
+        setBarPct(0);
         break;
 
       case 'ready':
