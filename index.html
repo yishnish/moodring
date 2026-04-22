@@ -141,6 +141,17 @@
       font-variant-numeric: tabular-nums;
     }
 
+    #loading-debug {
+      font-size: 0.55rem;
+      letter-spacing: 0.05em;
+      opacity: 0.2;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: monospace;
+    }
+
     #debug-panel {
       position: fixed;
       bottom: 90px;
@@ -208,6 +219,7 @@
         <div id="loading-bar-fill"></div>
       </div>
       <p id="loading-pct">0%</p>
+      <p id="loading-debug"></p>
     </div>
   </div>
 

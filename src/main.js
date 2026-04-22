@@ -13,6 +13,7 @@ const loadingState  = document.getElementById('loading-state');
 const loadingLabel  = document.getElementById('loading-label');
 const loadingFill   = document.getElementById('loading-bar-fill');
 const loadingPct    = document.getElementById('loading-pct');
+const loadingDebug  = document.getElementById('loading-debug');
 const debugPanel    = document.getElementById('debug-panel');
 const debugStatus   = document.getElementById('debug-status');
 const debugMood     = document.getElementById('debug-mood');
@@ -22,12 +23,14 @@ const debugCount    = document.getElementById('debug-count');
 // --- State ---
 const history  = new MoodHistory();
 const renderer = new RingRenderer(canvas);
-let worker     = null;
-let audio      = null;
-let pendingId  = 0;
-let activeJobs = 0;
-let chunkCount = 0;
-let mode       = 'proportional';
+let worker      = null;
+let audio       = null;
+let pendingId   = 0;
+let activeJobs  = 0;
+let chunkCount  = 0;
+let mode        = 'proportional';
+let progressHWM = 0; // high-water mark — bar never goes backwards
+
 
 // --- Resize ---
 window.addEventListener('resize', () => renderer.resize());
@@ -48,14 +51,19 @@ function setBarPct(pct) {
   loadingPct.textContent  = `${Math.round(pct)}%`;
 }
 
-// Accumulate per-file bytes — resets cleanly when model_start fires
 function updateModelProgress(p) {
-  if (p.status === 'progress' && p.file && p.total > 0) {
-    fileBytes[p.file] = { loaded: p.loaded ?? 0, total: p.total };
-    const entries     = Object.values(fileBytes);
-    const totalLoaded = entries.reduce((s, e) => s + e.loaded, 0);
-    const totalSize   = entries.reduce((s, e) => s + e.total, 0);
-    setBarPct(totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0);
+  // Use progress_total (v4 aggregate) but clamp with a high-water mark
+  // so the bar never goes backwards when new large files appear
+  if (p.status === 'progress_total') {
+    const pct = p.progress ?? 0;
+    if (pct > progressHWM) {
+      progressHWM = pct;
+      setBarPct(progressHWM);
+    }
+  }
+  // Show the current file name so it's visible on phone
+  if (p.status === 'initiate' && p.file) {
+    loadingDebug.textContent = p.file.split('/').pop();
   }
 }
 
@@ -99,8 +107,7 @@ function initWorker() {
         break;
 
       case 'model_start':
-        // Processor done (silent), now downloading the large model weights
-        Object.keys(fileBytes).forEach(k => delete fileBytes[k]);
+        progressHWM = 0;
         loadingLabel.textContent = 'Downloading Gemma 4 E2B';
         setBarPct(0);
         break;
